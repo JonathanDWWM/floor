@@ -25,6 +25,9 @@ floor écoute sur `127.0.0.1:5002`. Mets un reverse proxy HTTPS devant (nginx, T
 | `PORT`        | `5002`           | Port d'écoute                                  |
 | `FLOOR_DB`    | `data/floor.db`  | Fichier SQLite                                 |
 | `TRUST_PROXY` | (aucun)          | Proxys de confiance devant floor (`1`…)        |
+| `RONNHEIM_RELEASES` | `ronnheim-releases` à côté de la base | Les versions de Ronnheim |
+| `RONNHEIM_PUBLISH_TOKEN` | (aucun) | Le jeton qui les publie (sans lui : fermé)      |
+| `RONNHEIM_SEED` | (au hasard) | La graine d'un nouveau monde de Ronnheim         |
 
 Sauvegarde : `docker compose exec floor node -e "require('better-sqlite3')('/data/floor.db').backup('/data/backup.db')"`.
 
@@ -128,6 +131,28 @@ Un jeu comme agar.io : floor fait tourner le monde (`src/blob/world.js`, 40 pas 
 - Connexion tombée en pleine vie : les cellules attendent 10 s, le joueur les reprend en se reconnectant.
 - Par adresse : 4 connexions ouvertes et 30 ouvertures par minute au plus.
 - Derrière nginx, le WebSocket a besoin de son bloc (voir `nginx/floor.conf`).
+
+### Ronnheim (WebSocket `/v1/ronnheim/ws`)
+
+Un jeu de survie vu de dessus, dont le programme est à part (le dépôt `ronnheim`) : floor fait tourner l'île (`src/ronnheim/world.js`, 20 pas par seconde) et l'envoie aux joueurs (`src/ronnheim/index.js`). Au milieu, la prairie : on y ramasse branches et pierres, abat les arbres (ils repoussent), chasse le cerf (qui fuit qui court près de lui) et le sanglier (qui charge quand on le frappe), repousse les grisets (de la résine pour les torches), invoque Eikthyr. Une bête en rage lâche quand on l'a entraînée trop loin de chez elle. Autour, la forêt noire : sapins et pins (le bois de cœur), nains gris qui chassent en bande (leurs yeux, avec le bois fin des bouleaux de la prairie, font des portails : deux du même nom se répondent), squelettes (qui craignent la massue ; leurs os font l'armure en cuir), trolls (leur massue, qu'on voit se lever, abat les arbres autour ; leur peau fait une armure et une cape), myrtilles, carottes sauvages (à replanter), cuivre et étain à fondre puis allier en bronze à la forge (la hache en bronze seule abat les bouleaux). Des bêtes ont une ou deux étoiles (plus de vie, de dégâts et de butin ; plus souvent dans la forêt noire, les donjons et la nuit). Le combat : des séries de trois coups (le dernier plus fort), l'attaque lourde (`hit { heavy }` : elle repousse, fait chanceler, lance la lance), le coup en traître dans le dos, la roulade (`roll` : un instant où rien ne porte) ; le nain gris bondit, le troll (lent, rare) jette des rochers annoncés au sol, des squelettes portent un bouclier qui pare de face. Les bêtes arment leur coup avant de frapper : on peut reculer, ou lever le bouclier (`block`) qui en arrête une part, et pare tout (la bête chancelle et prend double) s'il vient d'être levé. À la mort, tout reste dans une tombe là où l'on est tombé (`loot` pour le reprendre). Dans la forêt noire, des mausolées gardés par trois squelettes (archers ou non) : leur escalier mène à un donjon à part (`src/ronnheim/crypt.js` : des salles et des couloirs tirés d'une graine, posés hors de l'île), avec ses squelettes (et ses archers, et un gardien à deux étoiles devant le trésor), ses générateurs de squelettes, ses pièges à pointes et ses coffres ; il se défait quand plus personne n'y est depuis une demi-heure (et ne se garde pas d'un redémarrage : qui y était revient devant le mausolée). Aucune bête n'apparaît à moins de 30 cases d'un établi (la base est à l'abri des retours). On bâtit le marteau en main (`place`), on cultive le cultivateur en main (`place { k: 'till' }` retourne la terre, où seulement l'on plante). On bâtit une base (établi, plancher, murs, portes, lit où l'on revient, torches, fonderie, forge, coffres de dix sortes de choses, chaudron à poser sur un feu pour la soupe et la confiture) et un drakkar (bois fin et clous en bronze) pour naviguer ; les armures vont des haillons au bronze ; on fabrique près d'un établi, que le billot et la table de tannage montent de niveau, pour améliorer son équipement. Le jeu bouge son joueur lui-même et dit où il est ; floor refuse une position trop loin, dans l'eau ou dans un mur. Le monde dure : souches, feux, constructions (et ce que contiennent les coffres), bateaux, tombes carottes plantées et terre retournée (table `ronnheim_world`), position, santé, inventaire, lit et qualités de chacun (table `ronnheim_players`) sont écrits toutes les 30 s et quand on part ; un état d'une version plus ancienne du monde est oublié (le monde reprend de sa graine). L'île vient d'une graine : toujours la même.
+
+- Le premier message : `{ t: 'hello', token }`. Ensuite `pos { x, y, d, m }`, `hit`, `shoot { a }`, `pick { id }`, `craft { r }`, `build { x, y }`, `fuel { id }`, `cook { id }`, `eat { k }`, `hold { k }`, `order { slots }` (l'inventaire rangé), `block { on }` (le bouclier), `loot { id }` (une tombe), `descend { id }` et `ascend` (l'escalier d'un mausolée), `open { id }` (un coffre d'un donjon), `pause { on }` (le menu ouvert : seul, le monde s'arrête), `respawn`, `say { text }`, `ping { n }`.
+- floor envoie `welcome` (la carte, arbres, rochers, objets, feux, recettes), `me` (inventaire, outil en main, ordre des cases), les images `s` (joueurs, bêtes et flèches autour de soi, 20 par seconde), `o` (arbres, objets, feux et ce qu'il y a dans les donjons qui changent), `crypt` (le donjon où l'on arrive : son plan, ses coffres, braseros et pièges ; `id: null` dehors), `fx` (coups, arbres qui tombent, bêtes qui meurent), `got`, `pos` (position refusée), `dead`, `chat`, `pong`.
+- Derrière nginx, le WebSocket a besoin de son bloc (voir `nginx/floor.conf`).
+
+### Les versions de Ronnheim (`/v1/ronnheim`)
+
+Le jeu se met à jour depuis floor (son dépôt GitHub est privé). Les archives sont rangées dans
+`RONNHEIM_RELEASES` (dans le volume, en production) ; les trois dernières versions restent.
+
+- `GET /v1/ronnheim/release` → `{ version, notes, at, files: [{ name, size, sha256 }] }`, la dernière publiée (`404` s'il n'y en a pas).
+- `GET /v1/ronnheim/download/:version/:name` : une archive (`ronnheim-<cible>.tar.gz` ou `.zip`).
+- `PUT /v1/ronnheim/releases/:version/:name` (jeton de publication) : envoie une archive, le corps tel quel (300 Mo au plus).
+- `POST /v1/ronnheim/releases/:version/publish` `{ notes }` (jeton de publication) : la version envoyée devient la dernière.
+
+Le jeton de publication (`Authorization: Bearer …`) est `RONNHEIM_PUBLISH_TOKEN` : sur la Beemo dans
+`~/floor/.env`, et dans les secrets du dépôt ronnheim (GitHub Actions publie à chaque tag). Derrière
+nginx, l'envoi a besoin de son bloc (voir `nginx/floor.conf`).
 
 ## Ajouter un jeu
 

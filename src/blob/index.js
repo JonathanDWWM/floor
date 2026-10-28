@@ -1,6 +1,7 @@
 const { WebSocketServer } = require('ws')
 const { World, SIZE, HILL_R, ACID_R, mass, fxBits, skinsOf } = require('./world')
 const { clean } = require('../chat')
+const { route } = require('../upgrade')
 
 // Le monde avance tant de fois par seconde, et les joueurs le voient une fois sur deux.
 const TICK_MS = 25
@@ -43,7 +44,8 @@ const PER_IP_MINUTE = 30
 function blob (server, db, players, { random, trustProxy = false, graceMs = GRACE_MS, pauseMs = PAUSE_MS, perIp = PER_IP, perIpMinute = PER_IP_MINUTE } = {}) {
   // Un monde neuf à chaque fois que quelqu'un arrive dans un monde vide (voir `idle`).
   let world = new World({ random })
-  const wss = new WebSocketServer({ server, path: '/v1/blob/ws', maxPayload: 4096 })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 })
+  route(server, '/v1/blob/ws', wss)
   const clients = new Set()
   // Les joueurs dont la connexion est tombée, par compte : { id (dans le monde), at }.
   const orphans = new Map()

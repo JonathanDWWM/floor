@@ -98,3 +98,54 @@ test('donne le catalogue des modules de Ronnie', async () => {
     assert.ok(m.name && m.description && m.repo && m.app && m.exe)
   }
 })
+
+test('au démineur, le plus petit temps gagne', async () => {
+  const a = (await call('POST', '/v1/players', { body: { name: 'Sapper' } })).body
+  const b = (await call('POST', '/v1/players', { body: { name: 'Minus' } })).body
+  assert.equal((await call('POST', '/v1/games/demineur/scores', { token: a.token, body: { ms: 90000, clicks: 120 } })).status, 201)
+  assert.equal((await call('POST', '/v1/games/demineur/scores', { token: a.token, body: { ms: 95000, clicks: 100 } })).body.record, false)
+  assert.equal((await call('POST', '/v1/games/demineur/scores', { token: a.token, body: { ms: 61000, clicks: 98 } })).body.record, true)
+  await call('POST', '/v1/games/demineur/scores', { token: b.token, body: { ms: 75000, clicks: 110 } })
+  assert.equal((await call('POST', '/v1/games/demineur/scores', { token: b.token, body: { ms: 200, clicks: 3 } })).status, 400)
+
+  const board = (await call('GET', '/v1/games/demineur/leaderboard', { token: b.token })).body
+  assert.deepEqual(board.entries.map((e) => [e.rank, e.name, e.score, e.me]), [[1, 'Sapper', 61000, false], [2, 'Minus', 75000, true]])
+  assert.equal(board.entries[0].details.clicks, 98)
+  assert.equal((await call('GET', '/v1/games')).body.find((g) => g.id === 'demineur').order, 'asc')
+})
+
+test('à Ronnie Run, la plus longue course gagne', async () => {
+  const a = (await call('POST', '/v1/players', { body: { name: 'Rainbow' } })).body
+  const b = (await call('POST', '/v1/players', { body: { name: 'Elf' } })).body
+  assert.equal((await call('POST', '/v1/games/ronnie-run/scores', { token: a.token, body: { meters: 420, jumps: 37 } })).status, 201)
+  assert.equal((await call('POST', '/v1/games/ronnie-run/scores', { token: a.token, body: { meters: 300, jumps: 25 } })).body.record, false)
+  await call('POST', '/v1/games/ronnie-run/scores', { token: b.token, body: { meters: 666, jumps: 61 } })
+  assert.equal((await call('POST', '/v1/games/ronnie-run/scores', { token: b.token, body: { meters: 999999, jumps: 1 } })).status, 400)
+
+  const board = (await call('GET', '/v1/games/ronnie-run/leaderboard', { token: a.token })).body
+  assert.deepEqual(board.entries.map((e) => [e.rank, e.name, e.score, e.me]), [[1, 'Elf', 666, false], [2, 'Rainbow', 420, true]])
+  assert.equal(board.entries[0].details.jumps, 61)
+})
+
+test('à Backstage, le plus haut score gagne', async () => {
+  const a = (await call('POST', '/v1/players', { body: { name: 'Halford' } })).body
+  const b = (await call('POST', '/v1/players', { body: { name: 'Dickinson' } })).body
+  assert.equal((await call('POST', '/v1/games/backstage/scores', { token: a.token, body: { score: 350, rage: 1, picks: 15 } })).status, 201)
+  await call('POST', '/v1/games/backstage/scores', { token: b.token, body: { score: 1260, rage: 3, picks: 36 } })
+  assert.equal((await call('POST', '/v1/games/backstage/scores', { token: b.token, body: { score: 0, rage: 0, picks: 0 } })).status, 400)
+
+  const board = (await call('GET', '/v1/games/backstage/leaderboard', { token: a.token })).body
+  assert.deepEqual(board.entries.map((e) => [e.rank, e.name, e.score, e.me]), [[1, 'Dickinson', 1260, false], [2, 'Halford', 350, true]])
+  assert.equal(board.entries[0].details.rage, 3)
+})
+
+test('Riff Hero en solo : un classement par niveau', async () => {
+  const a = (await call('POST', '/v1/players', { body: { name: 'Zakk' } })).body
+  const song = (score) => ({ score, hits: 150, perfects: 120, misses: 12, combo: 80 })
+  assert.equal((await call('POST', '/v1/games/riff-hero-difficile/scores', { token: a.token, body: song(52000) })).status, 201)
+  assert.equal((await call('POST', '/v1/games/riff-hero-facile/scores', { token: a.token, body: song(21000) })).status, 201)
+  const hard = (await call('GET', '/v1/games/riff-hero-difficile/leaderboard')).body
+  assert.deepEqual(hard.entries.map((e) => [e.name, e.score]), [['Zakk', 52000]])
+  assert.equal((await call('GET', '/v1/games/riff-hero-moyen/leaderboard')).body.players, 0)
+  assert.equal((await call('POST', '/v1/games/riff-hero-moyen/scores', { token: a.token, body: song(999999) })).status, 400)
+})

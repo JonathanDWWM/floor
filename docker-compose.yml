@@ -12,6 +12,8 @@ services:
     environment:
       # Derrière le reverse proxy : le nombre de proxys devant floor (l'adresse du joueur en dépend).
       TRUST_PROXY: "1"
+      # Le jeton qui publie les versions de Ronnheim (dans ~/floor/.env sur la Beemo ; vide : fermé).
+      RONNHEIM_PUBLISH_TOKEN: ${RONNHEIM_PUBLISH_TOKEN:-}
     volumes:
       - floor-data:/data
 

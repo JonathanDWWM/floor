@@ -50,6 +50,16 @@ const migrations = [
      player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
      games INTEGER NOT NULL DEFAULT 0,
      kills INTEGER NOT NULL DEFAULT 0
+   );`,
+  // Ronnheim : ce que chaque joueur garde (position, santé, inventaire), et le monde (souches, feux).
+  `CREATE TABLE ronnheim_players (
+     player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+     data TEXT NOT NULL,
+     at INTEGER NOT NULL
+   );
+   CREATE TABLE ronnheim_world (
+     k TEXT PRIMARY KEY,
+     v TEXT NOT NULL
    );`
 ]
 

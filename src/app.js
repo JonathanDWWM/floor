@@ -5,10 +5,11 @@ const games = require('./games')
 const { live } = require('./live')
 const release = require('./version')
 const modules = require('./modules')
+const { releases } = require('./releases')
 
 const BOARD_MAX = 100
 
-function createApp (db, { trustProxy = false, now } = {}) {
+function createApp (db, { trustProxy = false, now, releasesDir = null, publishToken = null } = {}) {
   const players = makePlayers(db)
   const app = express()
   // Pour Ronnie.io, qui s'ouvre sur le serveur HTTP (voir src/blob).
@@ -34,6 +35,9 @@ function createApp (db, { trustProxy = false, now } = {}) {
 
   // Le jeu à deux : présence, invitations, parties.
   app.use('/v1/live', live(db, players, { now }))
+
+  // Les versions de Ronnheim, d'où le jeu se met à jour (voir src/releases.js).
+  if (releasesDir) app.use('/v1/ronnheim', releases({ dir: releasesDir, token: publishToken }))
 
   // Les modules que Ronnie propose de télécharger.
   app.get('/v1/modules', (req, res) => res.json({ modules }))

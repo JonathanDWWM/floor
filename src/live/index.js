@@ -3,6 +3,7 @@ const express = require('express')
 const { HttpError } = require('../players')
 const { nameKey } = require('../names')
 const c4 = require('./connect4')
+const riff = require('./riff')
 const { clean, CHAT_KEEP } = require('../chat')
 
 // En ligne : vu depuis moins de tant (Ronnie se signale toutes les quelques secondes, avec un pseudo).
@@ -13,18 +14,20 @@ const AWAY_MS = 45 * 1000
 // Les invitations et les parties finies, gardées tant (pour qu'on voie leur fin).
 const KEEP_MS = 10 * 60 * 1000
 // Les jeux auxquels on peut inviter.
-const GAMES = ['puissance-4', 'ronnie-io']
+const GAMES = ['puissance-4', 'ronnie-io', 'riff-hero']
+// Ceux qui se jouent dans une partie à deux.
+const MATCHES = ['puissance-4', 'riff-hero']
 
-// Le jeu à deux de floor : qui est en ligne, les invitations, les parties de Puissance 4. Tout vit en
-// mémoire (un redémarrage les oublie) ; seules les victoires vont dans la base, au classement
-// `puissance-4`. `now` : l'horloge (les tests la font avancer).
+// Le jeu à deux de floor : qui est en ligne, les invitations, les parties de Puissance 4 et les
+// battles de Riff Hero. Tout vit en mémoire (un redémarrage les oublie) ; seules les victoires vont
+// dans la base, au classement du jeu. `now` : l'horloge (les tests la font avancer).
 function live (db, players, { now = Date.now } = {}) {
   const router = express.Router()
   const seen = new Map()
   const invites = new Map()
   const matches = new Map()
   const nameOf = db.prepare('SELECT name FROM players WHERE id = ?')
-  const won = db.prepare(`INSERT INTO scores (game, player_id, score, details, at) VALUES ('puissance-4', ?, 1, '{}', ?)
+  const won = db.prepare(`INSERT INTO scores (game, player_id, score, details, at) VALUES (?, ?, 1, '{}', ?)
     ON CONFLICT (game, player_id) DO UPDATE SET score = scores.score + 1, at = excluded.at`)
 
   const name = (id) => nameOf.get(id)?.name ?? null
@@ -33,7 +36,7 @@ function live (db, players, { now = Date.now } = {}) {
 
   function end (m, winner, reason) {
     Object.assign(m, { over: true, winner, reason, endedAt: now() })
-    if (winner === 1 || winner === 2) won.run(m.players[winner - 1], now())
+    if (winner === 1 || winner === 2) won.run(m.game, m.players[winner - 1], now())
   }
 
   // Les invitations périmées, les absents d'une partie, ce qui est fini depuis longtemps.
@@ -47,15 +50,19 @@ function live (db, players, { now = Date.now } = {}) {
       if (!m.over) {
         const away = m.players.findIndex((p) => t - (seen.get(p) ?? 0) > AWAY_MS)
         if (away >= 0) end(m, 2 - away, 'forfeit')
+        // Le morceau fini depuis longtemps sans le score final de l'un : les scores qu'on a.
+        else if (m.game === 'riff-hero' && t > m.startAt + riff.SONG_MS + riff.GRACE_MS) end(m, riff.winner(m.riff), 'score')
       } else if (t - m.endedAt > KEEP_MS) {
         matches.delete(m.id)
       }
     }
   }
 
-  function start (first, second) {
+  function start (first, second, game) {
     // `chat` : les messages des deux joueurs ({ player, text }), qui suivent dans la revanche.
-    const m = { id: crypto.randomUUID(), players: [first, second], columns: c4.empty(), turn: 1, moves: 0, last: null, over: false, winner: null, reason: null, line: null, rematch: [false, false], next: null, chat: [] }
+    const m = { id: crypto.randomUUID(), game, players: [first, second], columns: c4.empty(), turn: 1, moves: 0, last: null, over: false, winner: null, reason: null, line: null, rematch: [false, false], next: null, chat: [] }
+    // Riff Hero : la graine du morceau, quand il commence, où en est chacun.
+    if (game === 'riff-hero') Object.assign(m, { seed: riff.seed(), startAt: now() + riff.LEAD_MS, riff: [riff.fresh(), riff.fresh()] })
     matches.set(m.id, m)
     return m
   }
@@ -63,8 +70,13 @@ function live (db, players, { now = Date.now } = {}) {
   // La partie vue par `id` : `you` vaut 1 (il commence) ou 2 ; `winner` 1, 2, ou 3 pour un nul.
   function view (m, id) {
     const you = m.players.indexOf(id) + 1
+    // Riff Hero : la graine, dans combien de millisecondes le morceau commence (négatif : commencé),
+    // où en sont les deux joueurs.
+    const song = m.game === 'riff-hero' ? { seed: m.seed, starts_in: m.startAt - now(), riff: m.riff } : {}
     return {
       id: m.id,
+      game: m.game,
+      ...song,
       players: m.players.map(name),
       you,
       columns: m.columns,
@@ -122,10 +134,10 @@ function live (db, players, { now = Date.now } = {}) {
     const target = [...seen.keys()].find((id) => online(id) && name(id) && nameKey(name(id)) === to)
     if (!target) throw new HttpError(404, 'Joueur hors ligne')
     if (target === me) throw new HttpError(400, 'Pas contre toi-même')
-    // Puissance 4 (une partie à deux), ou Ronnie.io (le monde de tous : on s'y retrouve).
+    // Puissance 4 ou Riff Hero (une partie à deux), ou Ronnie.io (le monde de tous : on s'y retrouve).
     const game = req.body?.game ?? 'puissance-4'
     if (!GAMES.includes(game)) throw new HttpError(400, 'Jeu inconnu')
-    if (game === 'puissance-4' && (playing(me) || playing(target))) throw new HttpError(409, 'Déjà en partie')
+    if (MATCHES.includes(game) && (playing(me) || playing(target))) throw new HttpError(409, 'Déjà en partie')
     for (const i of invites.values()) if (i.from === me && i.status === 'pending') i.status = 'cancelled'
     const inv = { id: crypto.randomUUID(), from: me, to: target, at: now(), status: 'pending', match: null, game }
     invites.set(inv.id, inv)
@@ -145,7 +157,7 @@ function live (db, players, { now = Date.now } = {}) {
     }
     if (playing(inv.from) || playing(inv.to)) throw new HttpError(409, 'Déjà en partie')
     // Celui qui invite commence.
-    const m = start(inv.from, inv.to)
+    const m = start(inv.from, inv.to, inv.game)
     Object.assign(inv, { status: 'accepted', match: m.id })
     res.status(201).json(view(m, req.player.id))
   })
@@ -165,6 +177,7 @@ function live (db, players, { now = Date.now } = {}) {
   router.post('/matches/:id/moves', (req, res) => {
     const m = match(req)
     const you = m.players.indexOf(req.player.id) + 1
+    if (m.game !== 'puissance-4') throw new HttpError(400, 'Pas une partie de Puissance 4')
     if (m.over) throw new HttpError(409, 'Partie finie')
     if (m.turn !== you) throw new HttpError(409, 'Pas ton tour')
     const column = req.body?.column
@@ -184,6 +197,25 @@ function live (db, players, { now = Date.now } = {}) {
     } else {
       m.turn = 3 - you
     }
+    res.json(view(m, req.player.id))
+  })
+
+  // Riff Hero : où en est le joueur (son score, son combo...), `done` à la fin du morceau. Les deux
+  // finis, le plus haut score gagne.
+  router.post('/matches/:id/riff', (req, res) => {
+    const m = match(req)
+    if (m.game !== 'riff-hero') throw new HttpError(400, 'Pas une partie de Riff Hero')
+    if (m.over) throw new HttpError(409, 'Partie finie')
+    let p
+    try {
+      p = riff.progress(req.body)
+    } catch (e) {
+      throw new HttpError(400, e.message)
+    }
+    const side = m.riff[m.players.indexOf(req.player.id)]
+    // Le score final ne change plus.
+    if (!side.done) Object.assign(side, p)
+    if (m.riff.every((s) => s.done)) end(m, riff.winner(m.riff), 'score')
     res.json(view(m, req.player.id))
   })
 
@@ -212,7 +244,7 @@ function live (db, players, { now = Date.now } = {}) {
     if (m.rematch[0] && m.rematch[1] && !m.next) {
       if (!online(a) || !online(b)) throw new HttpError(409, 'Joueur hors ligne')
       if (playing(a) || playing(b)) throw new HttpError(409, 'Déjà en partie')
-      const next = start(b, a)
+      const next = start(b, a, m.game)
       next.chat = [...m.chat]
       m.next = next.id
     }

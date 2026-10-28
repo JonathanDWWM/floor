@@ -5,7 +5,12 @@
 const games = [
   require('./speed-metal'),
   require('./puissance-4'),
-  require('./ronnie-io')
+  require('./ronnie-io'),
+  require('./demineur'),
+  require('./ronnie-run'),
+  require('./riff-hero'),
+  ...require('./riff-hero-solo'),
+  require('./backstage')
 ]
 
 module.exports = Object.fromEntries(games.map((g) => [g.id, g]))

@@ -122,3 +122,51 @@ test('une invitation à Ronnie.io : acceptée, sans partie à deux', async () =>
   const mine = (await ping(lemmy)).sent
   assert.deepEqual([mine.status, mine.game, mine.match], ['accepted', 'ronnie-io', null])
 })
+
+test('un battle de Riff Hero : le même morceau, les scores, le plus haut gagne', async () => {
+  const kirk = await player('Kirk')
+  const slash = await player('Slash')
+  await ping(kirk)
+  await ping(slash)
+  const inv = (await call('POST', '/v1/live/invites', { token: kirk, body: { to: 'Slash', game: 'riff-hero' } })).body
+  assert.deepEqual((await ping(slash)).invites.map((i) => i.game), ['riff-hero'])
+  const m = (await call('POST', `/v1/live/invites/${inv.id}/accept`, { token: slash })).body
+  assert.equal(m.game, 'riff-hero')
+  assert.ok(Number.isInteger(m.seed) && m.seed > 0)
+  assert.equal(m.starts_in, 5000)
+  assert.deepEqual(m.riff.map((s) => s.score), [0, 0])
+  assert.equal((await ping(kirk)).match, m.id)
+  // Pas de jeton de Puissance 4 dans un battle, pas de score impossible.
+  assert.equal((await call('POST', `/v1/live/matches/${m.id}/moves`, { token: kirk, body: { column: 0 } })).status, 400)
+  assert.equal((await call('POST', `/v1/live/matches/${m.id}/riff`, { token: kirk, body: { score: -1, combo: 0, hits: 0, misses: 0 } })).status, 400)
+
+  const riff = (token, score, done = false) => call('POST', `/v1/live/matches/${m.id}/riff`, { token, body: { score, combo: 3, hits: 10, misses: 1, done } })
+  let s = (await riff(kirk, 1200)).body
+  assert.deepEqual([s.riff[0].score, s.over], [1200, false])
+  // Le même départ pour les deux, et chacun voit l'autre.
+  const seen = (await call('GET', `/v1/live/matches/${m.id}`, { token: slash })).body
+  assert.deepEqual([seen.seed, seen.riff[0].score, seen.you], [m.seed, 1200, 2])
+  await riff(kirk, 5000, true)
+  // Fini : le score ne bouge plus.
+  assert.equal((await riff(kirk, 9999)).body.riff[0].score, 5000)
+  s = (await riff(slash, 7000, true)).body
+  assert.deepEqual([s.over, s.winner, s.reason], [true, 2, 'score'])
+  const board = (await call('GET', '/v1/games/riff-hero/leaderboard')).body
+  assert.deepEqual(board.entries.map((e) => [e.name, e.score]), [['Slash', 1]])
+
+  // La revanche : un nouveau morceau, l'autre en premier.
+  await call('POST', `/v1/live/matches/${m.id}/rematch`, { token: kirk })
+  s = (await call('POST', `/v1/live/matches/${m.id}/rematch`, { token: slash })).body
+  const next = (await call('GET', `/v1/live/matches/${s.next}`, { token: slash })).body
+  assert.deepEqual([next.game, next.you, next.riff[1].score], ['riff-hero', 1, 0])
+
+  // Sans score final de l'un, le battle se termine quand même après le morceau.
+  await call('POST', `/v1/live/matches/${next.id}/riff`, { token: slash, body: { score: 300, combo: 0, hits: 3, misses: 0, done: true } })
+  for (let k = 0; k < 4; k++) {
+    clock += 20 * 1000
+    await ping(slash)
+    await ping(kirk)
+  }
+  const late = (await call('GET', `/v1/live/matches/${next.id}`, { token: kirk })).body
+  assert.deepEqual([late.over, late.winner, late.reason], [true, 1, 'score'])
+})
