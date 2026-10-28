@@ -16,7 +16,7 @@ module.exports = {
   order: 'desc',
   score (body) {
     const details = {
-      meters: int(body, 'meters', 1, 100000),
+      meters: int(body, 'meters', 1, 150000),
       jumps: int(body, 'jumps', 0, 100000)
     }
     return { score: details.meters, details }

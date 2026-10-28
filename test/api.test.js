@@ -138,3 +138,14 @@ test('à Backstage, le plus haut score gagne', async () => {
   assert.deepEqual(board.entries.map((e) => [e.rank, e.name, e.score, e.me]), [[1, 'Dickinson', 1260, false], [2, 'Halford', 350, true]])
   assert.equal(board.entries[0].details.rage, 3)
 })
+
+test('Riff Hero en solo : un classement par niveau', async () => {
+  const a = (await call('POST', '/v1/players', { body: { name: 'Zakk' } })).body
+  const song = (score) => ({ score, hits: 150, perfects: 120, misses: 12, combo: 80 })
+  assert.equal((await call('POST', '/v1/games/riff-hero-difficile/scores', { token: a.token, body: song(52000) })).status, 201)
+  assert.equal((await call('POST', '/v1/games/riff-hero-facile/scores', { token: a.token, body: song(21000) })).status, 201)
+  const hard = (await call('GET', '/v1/games/riff-hero-difficile/leaderboard')).body
+  assert.deepEqual(hard.entries.map((e) => [e.name, e.score]), [['Zakk', 52000]])
+  assert.equal((await call('GET', '/v1/games/riff-hero-moyen/leaderboard')).body.players, 0)
+  assert.equal((await call('POST', '/v1/games/riff-hero-moyen/scores', { token: a.token, body: song(999999) })).status, 400)
+})

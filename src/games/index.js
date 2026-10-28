@@ -9,6 +9,7 @@ const games = [
   require('./demineur'),
   require('./ronnie-run'),
   require('./riff-hero'),
+  ...require('./riff-hero-solo'),
   require('./backstage')
 ]
 
